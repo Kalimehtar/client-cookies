@@ -1,8 +1,14 @@
 #lang racket
 (require net/head net/url)
 
+;;; Based on RFC 6265
 
-;; rfc6265#section-5.1.1
+;; section 5.3
+(struct cookie (name
+   value expiry-time domain path creation-time last-access-time
+   persistent-flag host-only-flag secure-only-flag http-only-flag))
+
+;; section 5.1.1
 (define (parse-date str)
   (define delimiter  `(#x09 ,@(range #x20 #x2F) #x2F 
                             ,@(range #x3B #x40) #x40 
@@ -51,6 +57,15 @@
     (define-values (hour minute second) (apply values time))
     (and day month year (date second minute hour day month year 0 0 #f 0))))
 
+;; section 5.1.3
+
+(define (domain-match domain host)
+  (define diff (- (string-length host) (string-length domain)))
+  (and (diff . >= . 0)
+       (string=? domain (substring host diff))
+       (or (= diff 0) (char=? (string-ref host (sub1 diff)) #\.))
+       (not (regexp-match #px"\\.\\d\\d?\\d?$" host))))
+
 (define (save-cookies! uri headers)
   (define (name-value str sep)
     (define pos (for/or ([ch (in-string str)]
@@ -79,12 +94,10 @@
         (define-values (name value) (name-value cookie-av #\=))
         (define iname (string-downcase name))
         (cond
-          [(string=? iname "expires") (let ([expires (parse-date value)]) 
-                                        (values expires max-age domain path secure http-only))]
-          [(string=? iname "max-age") (let ([max-age (string->number value)])
-                                        (values expires max-age domain path secure http-only))]
+          [(string=? iname "expires") (values (parse-date value) max-age domain path secure http-only)]
+          [(string=? iname "max-age") (values expires (string->number value) domain path secure http-only)]
           [(string=? iname "domain") (values expires max-age (string-downcase value) path secure http-only)]
-          [((string=? iname "path") (> (string-length value) 0) (char=? (string-ref value 0) #\\)) 
+          [(and (string=? iname "path") (> (string-length value) 0) (char=? (string-ref value 0) #\\))
            (values expires max-age domain value secure http-only)]
           [(string=? iname "secure") (values expires max-age domain path #t http-only)]
           [(string=? iname "http-only") (values expires max-age domain path secure #t)])))
@@ -105,10 +118,17 @@
          ((save-cookie!) name value expires domain path secure http-only)))]))
 
 (define save-cookie! (make-parameter default-save-cookie!))
+(define add-cookies (make-parameter default-add-cookies))
 
 (define cookie-jar (make-hash))
-(define (default-save-cookie! name value expires max-age domain path secure http-only)
+(define (default-save-cookie! name value expires domain path secure http-only)
   (define key (list name domain path))
-  (hash-set! cookie-jar key value))
+  (hash-set! cookie-jar key (list value expires secure http-only)))
+
+(define (default-add-cookies url headers)
+  (for/list ([(k v) (in-hash cookie-jar)])
+    (define-values (name domain path) (apply values k))
+    (define-values (expires secure http-only) (apply values k))
+    1))
 
 (struct a (x y))
