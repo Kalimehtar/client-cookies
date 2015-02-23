@@ -9,7 +9,7 @@
   (values port reply-headers))
 
 (define (get-pure-port/cookies url [headers '()] #:redirections [redirections 0])
-  (call-with-values (get-pure-port/headers/cookies url headers #:redirections redirections)
+  (call-with-values (λ () (get-pure-port/headers/cookies url headers #:redirections redirections))
                     (λ (port _) port)))
     
   
